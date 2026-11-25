@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+cdk.out/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+coverage/
+*.tsbuildinfo
+# AWS icons are downloaded at build time and must not be committed
+.cache/
+generated/aws-icons/
