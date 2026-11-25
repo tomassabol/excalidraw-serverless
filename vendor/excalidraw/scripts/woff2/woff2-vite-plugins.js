@@ -1,5 +1,10 @@
 // define `EXCALIDRAW_ASSET_PATH` as a SSOT
-const OSS_FONTS_CDN = "https://excalidraw.nyc3.cdn.digitaloceanspaces.com/oss/";
+// excalidraw-serverless patch: serve the fonts from our own origin (they are
+// part of the build output) instead of Excalidraw's public CDN.
+const SELF_HOST_FONTS = true;
+const OSS_FONTS_CDN = SELF_HOST_FONTS
+  ? "/"
+  : "https://excalidraw.nyc3.cdn.digitaloceanspaces.com/oss/";
 const OSS_FONTS_FALLBACK = "/";
 
 /**
@@ -19,7 +24,12 @@ module.exports.woff2BrowserPlugin = () => {
     transform(code, id) {
       // using copy / replace as fonts defined in the `.css` don't have to be manually copied over (vite/rollup does this automatically),
       // but at the same time can't be easily prefixed with the `EXCALIDRAW_ASSET_PATH` only for the `excalidraw-app`
-      if (!isDev && id.endsWith("/excalidraw/fonts/fonts.css")) {
+      // self-hosted: keep fonts.css as is, Vite bundles its relative urls
+      if (
+        !isDev &&
+        !SELF_HOST_FONTS &&
+        id.endsWith("/excalidraw/fonts/fonts.css")
+      ) {
         return `/* WARN: The following content is generated during excalidraw-app build */
 
       @font-face {
@@ -68,10 +78,12 @@ module.exports.woff2BrowserPlugin = () => {
           "<!-- PLACEHOLDER:EXCALIDRAW_APP_FONTS -->",
           `<script>
         // point into our CDN in prod, fallback to root (excalidraw.com) domain in case of issues
-        window.EXCALIDRAW_ASSET_PATH = [
-          "${OSS_FONTS_CDN}",
-          "${OSS_FONTS_FALLBACK}",
-        ];
+        window.EXCALIDRAW_ASSET_PATH = ${
+          SELF_HOST_FONTS
+            ? `["${OSS_FONTS_FALLBACK}"]`
+            : `["${OSS_FONTS_CDN}", "${OSS_FONTS_FALLBACK}"]`
+        };
+        window.EXCALIDRAW_SELF_HOSTED_FONTS = ${SELF_HOST_FONTS};
       </script>
 
       <!-- Preload all default fonts to avoid swap on init -->
@@ -86,13 +98,6 @@ module.exports.woff2BrowserPlugin = () => {
       <link
         rel="preload"
         href="${OSS_FONTS_CDN}fonts/Nunito/Nunito-Regular-XRXI3I6Li01BKofiOc5wtlZ2di8HDIkhdTQ3j6zbXWjgeg.woff2"
-        as="font"
-        type="font/woff2"
-        crossorigin="anonymous"
-      />
-      <link
-        rel="preload"
-        href="${OSS_FONTS_CDN}fonts/Assistant/Assistant-SemiBold.woff2"
         as="font"
         type="font/woff2"
         crossorigin="anonymous"

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -7,10 +7,13 @@ import {
   aws_budgets as budgets,
   CfnOutput,
   aws_cloudfront as cloudfront,
+  aws_cloudwatch as cloudwatch,
+  aws_cloudwatch_actions as cloudwatchActions,
   aws_cognito as cognito,
   Duration,
   aws_dynamodb as dynamodb,
   aws_lambda_event_sources as eventSources,
+  aws_events as events,
   Fn,
   aws_apigatewayv2_integrations as integrations,
   aws_lambda as lambda,
@@ -22,10 +25,15 @@ import {
   type StackProps,
   aws_s3 as s3,
   aws_s3_deployment as s3deploy,
+  aws_sns as sns,
+  aws_sns_subscriptions as snsSubscriptions,
+  aws_sqs as sqs,
+  aws_events_targets as targets,
 } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 
 import type { AppConfig } from './config.ts';
+import { buildCsp, inlineScriptHashes } from './csp.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const API_SRC = path.join(REPO_ROOT, 'packages/api/src/handlers');
@@ -44,6 +52,9 @@ export class AppStack extends Stack {
   constructor(scope: Construct, id: string, props: AppStackProps) {
     super(scope, id, props);
     const { config, table, dataBucket } = props;
+
+    const webBuildDir = path.resolve(REPO_ROOT, 'infra', config.webBuildDir);
+    const hasWebBuild = existsSync(path.join(webBuildDir, 'index.html'));
 
     // A short, stable, unique suffix for globally named resources.
     const suffix = Fn.select(0, Fn.split('-', Fn.select(2, Fn.split('/', this.stackId))));
@@ -73,26 +84,6 @@ function handler(event) {
   }
   return request;
 }`),
-    });
-
-    const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeaders', {
-      securityHeadersBehavior: {
-        strictTransportSecurity: {
-          accessControlMaxAge: Duration.days(365),
-          includeSubdomains: true,
-          override: true,
-        },
-        contentTypeOptions: { override: true },
-        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
-        referrerPolicy: {
-          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
-          override: true,
-        },
-        // A Content-Security-Policy is added in the hardening phase.
-      },
-      customHeadersBehavior: {
-        customHeaders: [{ header: 'X-Robots-Tag', value: 'noindex, nofollow', override: true }],
-      },
     });
 
     // -------------------------------------------------------------------------
@@ -160,6 +151,11 @@ function handler(event) {
     dataBucket.grantRead(purgeFn, 'ws/*');
     table.grantReadData(purgeFn);
     idempotencyTable.grantReadWriteData(purgeFn);
+    // records that still fail after the retries are kept here for 14 days
+    const purgeDlq = new sqs.Queue(this, 'PurgeDlq', {
+      retentionPeriod: Duration.days(14),
+      enforceSSL: true,
+    });
     purgeFn.addEventSource(
       new eventSources.DynamoEventSource(table, {
         startingPosition: lambda.StartingPosition.TRIM_HORIZON,
@@ -167,6 +163,7 @@ function handler(event) {
         retryAttempts: 5,
         bisectBatchOnError: true,
         reportBatchItemFailures: true,
+        onFailure: new eventSources.SqsDlq(purgeDlq),
         // only items removed by TTL
         filters: [
           lambda.FilterCriteria.filter({
@@ -179,6 +176,21 @@ function handler(event) {
         ],
       }),
     );
+
+    // Weekly cleanup of S3 objects nothing references (unused images, scene
+    // versions left behind by interrupted saves).
+    const gcFn = fn('GcFunction', 'gc.ts', 'gc', {
+      memorySize: 512,
+      timeout: Duration.minutes(5),
+    });
+    table.grantReadData(gcFn);
+    dataBucket.grantRead(gcFn, 'ws/*');
+    dataBucket.grantDelete(gcFn, 'ws/*');
+    new events.Rule(this, 'GcSchedule', {
+      description: 'Weekly cleanup of unreferenced S3 objects',
+      schedule: events.Schedule.cron({ minute: '0', hour: '3', weekDay: 'SUN' }),
+      targets: [new targets.LambdaFunction(gcFn, { retryAttempts: 2 })],
+    });
 
     // -------------------------------------------------------------------------
     // Cognito: one admin-created user, no self sign-up
@@ -202,13 +214,59 @@ function handler(event) {
       cognitoDomain: { domainPrefix: Fn.join('-', ['whiteboard', suffix]) },
     });
 
+    // The CSP pins the built page's inline scripts by hash and lists the
+    // origins the app talks to (Cognito, the S3 data bucket for presigned
+    // image URLs, and Excalidraw's public library site).
+    const csp = buildCsp({
+      scriptHashes: hasWebBuild
+        ? inlineScriptHashes(readFileSync(path.join(webBuildDir, 'index.html'), 'utf8'))
+        : [],
+      connectSrc: [
+        `https://cognito-idp.${this.region}.amazonaws.com`,
+        userPoolDomain.baseUrl(),
+        `https://${dataBucket.bucketRegionalDomainName}`,
+        'https://libraries.excalidraw.com',
+        'https://us-central1-excalidraw-room-persistence.cloudfunctions.net',
+      ],
+    });
+
+    const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeaders', {
+      securityHeadersBehavior: {
+        contentSecurityPolicy: { contentSecurityPolicy: csp, override: true },
+        strictTransportSecurity: {
+          accessControlMaxAge: Duration.days(365),
+          includeSubdomains: true,
+          override: true,
+        },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
+        referrerPolicy: {
+          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+      },
+      customHeadersBehavior: {
+        customHeaders: [
+          { header: 'X-Robots-Tag', value: 'noindex, nofollow', override: true },
+          {
+            header: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=(), payment=()',
+            override: true,
+          },
+        ],
+      },
+    });
+
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `${config.prefix} web + API`,
       defaultRootObject: 'index.html',
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(webBucket),
+        // LIST lets S3 answer 404 (instead of 403) for files that don't exist
+        origin: origins.S3BucketOrigin.withOriginAccessControl(webBucket, {
+          originAccessLevels: [cloudfront.AccessLevel.READ, cloudfront.AccessLevel.LIST],
+        }),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         responseHeadersPolicy: securityHeaders,
@@ -311,9 +369,6 @@ function handler(event) {
       },
     };
 
-    const webBuildDir = path.resolve(REPO_ROOT, 'infra', config.webBuildDir);
-    const hasWebBuild = existsSync(path.join(webBuildDir, 'index.html'));
-
     // Hashed and content-addressed assets: cache for a year. index.html,
     // 404.html, config.json and the AWS icon manifest are deployed separately
     // with no-cache so a deploy takes effect immediately.
@@ -355,10 +410,53 @@ function handler(event) {
     });
 
     // -------------------------------------------------------------------------
-    // Budget alert
+    // Alerts: budget, plus alarms emailed through SNS (only with an owner
+    // email; CloudWatch alarms cost about $0.10 each per month)
     // -------------------------------------------------------------------------
     const ownerEmail = config.ownerEmail;
     if (ownerEmail) {
+      const alerts = new sns.Topic(this, 'Alerts', { displayName: `${config.prefix} alerts` });
+      // Confirm the subscription from the email AWS sends after the first deploy.
+      alerts.addSubscription(new snsSubscriptions.EmailSubscription(ownerEmail));
+      const notify = new cloudwatchActions.SnsAction(alerts);
+      const alarm = (id: string, description: string, metric: cloudwatch.IMetric) => {
+        const a = new cloudwatch.Alarm(this, id, {
+          alarmDescription: description,
+          metric,
+          threshold: 1,
+          evaluationPeriods: 1,
+          comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        });
+        a.addAlarmAction(notify);
+        a.addOkAction(notify);
+      };
+      // The router turns handler errors into 500 responses, so 5xx from the
+      // API covers both handler errors and Lambda crashes/timeouts.
+      alarm(
+        'Api5xxAlarm',
+        'The API returned server errors',
+        httpApi.metricServerError({ period: Duration.minutes(5), statistic: 'Sum' }),
+      );
+      alarm(
+        'PurgeErrorsAlarm',
+        'The purge Lambda failed',
+        purgeFn.metricErrors({ period: Duration.minutes(5), statistic: 'Sum' }),
+      );
+      alarm(
+        'PurgeDlqAlarm',
+        'Expired items could not be purged; see the purge dead-letter queue',
+        purgeDlq.metricApproximateNumberOfMessagesVisible({
+          period: Duration.minutes(5),
+          statistic: 'Maximum',
+        }),
+      );
+      alarm(
+        'GcErrorsAlarm',
+        'The weekly S3 cleanup failed',
+        gcFn.metricErrors({ period: Duration.hours(1), statistic: 'Sum' }),
+      );
+
       new budgets.CfnBudget(this, 'MonthlyBudget', {
         budget: {
           budgetName: `${config.prefix}-monthly`,

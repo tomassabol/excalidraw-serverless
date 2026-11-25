@@ -18,6 +18,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   TransactWriteCommand,
   type TransactWriteCommandInput,
   UpdateCommand,
@@ -869,6 +870,92 @@ export const createStore = (deps: StoreDeps) => {
   const deleteSceneObjects = (workspaceId: string, sceneId: string) =>
     deletePrefix(scenePrefix(workspaceId, sceneId));
 
+  // -------------------------------------------------------------------- gc
+
+  const listObjects = async (prefix: string) => {
+    const objects: { key: string; lastModified: Date }[] = [];
+    let ContinuationToken: string | undefined;
+    do {
+      const page = await s3.send(
+        new ListObjectsV2Command({ Bucket, Prefix: prefix, ContinuationToken }),
+      );
+      for (const o of page.Contents ?? []) {
+        if (o.Key) objects.push({ key: o.Key, lastModified: o.LastModified ?? new Date(0) });
+      }
+      ContinuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (ContinuationToken);
+    return objects;
+  };
+
+  const deleteKeys = async (keys: string[]) => {
+    for (const part of chunk(keys, 1000)) {
+      await s3.send(
+        new DeleteObjectsCommand({
+          Bucket,
+          Delete: { Objects: part.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+    }
+  };
+
+  /**
+   * Deletes S3 objects nothing references any more: image files no scene uses
+   * (live or in the trash) and scene objects that aren't a scene's current
+   * version (left behind by interrupted saves). Only objects older than
+   * `minAgeMs` are touched, so in-flight uploads and saves are safe.
+   */
+  const collectGarbage = async ({ minAgeMs = 24 * 3600 * 1000 } = {}) => {
+    const cutoff = now().getTime() - minAgeMs;
+    const workspaceIds: string[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const page = await ddb.send(
+        new ScanCommand({
+          TableName,
+          FilterExpression: '#type = :ws',
+          ExpressionAttributeNames: { '#type': 'type' },
+          ExpressionAttributeValues: { ':ws': 'workspace' },
+          ProjectionExpression: 'id',
+          ExclusiveStartKey,
+        }),
+      );
+      workspaceIds.push(...(page.Items ?? []).map((i) => String(i.id)));
+      ExclusiveStartKey = page.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+
+    let filesDeleted = 0;
+    let sceneObjectsDeleted = 0;
+    for (const workspaceId of workspaceIds) {
+      const scenes = (await loadPartition(workspaceId)).filter(
+        (i): i is SceneItem => i.type === 'scene',
+      );
+      const currentKeys = new Set(scenes.map((s) => s.s3Key));
+      const referenced = new Set<string>();
+      for (const scene of scenes) {
+        const object = await s3.send(new GetObjectCommand({ Bucket, Key: scene.s3Key }));
+        const raw = JSON.parse((await object.Body?.transformToString()) ?? '{}') as {
+          elements?: { type?: string; fileId?: string | null; isDeleted?: boolean }[];
+        };
+        for (const element of raw.elements ?? []) {
+          // deleted elements stay in the scene (undo across sessions), so keep their files
+          if (element.type === 'image' && element.fileId) referenced.add(element.fileId);
+        }
+      }
+
+      const old = (o: { lastModified: Date }) => o.lastModified.getTime() < cutoff;
+      const unusedFiles = (await listObjects(`ws/${workspaceId}/files/`)).filter(
+        (o) => old(o) && !referenced.has(o.key.slice(o.key.lastIndexOf('/') + 1)),
+      );
+      const staleScenes = (await listObjects(`ws/${workspaceId}/scenes/`)).filter(
+        (o) => old(o) && !currentKeys.has(o.key),
+      );
+      await deleteKeys([...unusedFiles, ...staleScenes].map((o) => o.key));
+      filesDeleted += unusedFiles.length;
+      sceneObjectsDeleted += staleScenes.length;
+    }
+    return { workspaces: workspaceIds.length, filesDeleted, sceneObjectsDeleted };
+  };
+
   // ----------------------------------------------------------------- search
 
   const search = async (userId: string, workspaceId: string, q: string): Promise<SearchResult> => {
@@ -1019,6 +1106,7 @@ export const createStore = (deps: StoreDeps) => {
     restoreTrash,
     purgeTrash,
     deleteSceneObjects,
+    collectGarbage,
     search,
     upsertTag,
     deleteTag,

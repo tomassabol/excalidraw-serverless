@@ -95,7 +95,7 @@ describe('AppStack', () => {
         Environment: { Variables: { POWERTOOLS_SERVICE_NAME: Match.anyValue() } },
       },
     });
-    expect(Object.keys(fns)).toHaveLength(2);
+    expect(Object.keys(fns)).toHaveLength(3);
     for (const fn of Object.values(fns)) {
       expect(fn.Properties.Runtime).toBe('nodejs24.x');
       expect(fn.Properties.Architectures).toEqual(['arm64']);
@@ -138,8 +138,43 @@ describe('AppStack', () => {
     });
   });
 
-  test('budget alert exists when an owner email is set', () => {
+  test('budget, alert topic and alarms exist when an owner email is set', () => {
     appTemplate.resourceCountIs('AWS::Budgets::Budget', 1);
+    appTemplate.hasResourceProperties('AWS::SNS::Subscription', {
+      Protocol: 'email',
+      Endpoint: 'owner@example.com',
+    });
+    appTemplate.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+  });
+
+  test('purge failures go to a dead-letter queue', () => {
+    appTemplate.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      DestinationConfig: { OnFailure: { Destination: Match.anyValue() } },
+    });
+  });
+
+  test('cleanup runs weekly', () => {
+    appTemplate.hasResourceProperties('AWS::Events::Rule', {
+      ScheduleExpression: 'cron(0 3 ? * SUN *)',
+    });
+  });
+
+  test('responses carry a CSP and missing files are 404s', () => {
+    appTemplate.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
+      ResponseHeadersPolicyConfig: Match.objectLike({
+        SecurityHeadersConfig: Match.objectLike({
+          ContentSecurityPolicy: Match.objectLike({ Override: true }),
+        }),
+      }),
+    });
+    // OAC with s3:ListBucket so S3 answers 404 instead of 403
+    appTemplate.hasResourceProperties('AWS::S3::BucketPolicy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: Match.arrayWith(['s3:ListBucket']) }),
+        ]),
+      }),
+    });
   });
 
   test('idempotency table has its own TTL attribute', () => {

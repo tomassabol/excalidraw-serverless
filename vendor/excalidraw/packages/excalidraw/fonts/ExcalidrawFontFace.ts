@@ -164,7 +164,11 @@ export class ExcalidrawFontFace {
     }
 
     // fallback url for bundled fonts
-    urls.push(new URL(assetUrl, ExcalidrawFontFace.ASSETS_FALLBACK_URL));
+    // excalidraw-serverless patch: apps that host the fonts themselves can
+    // opt out of the third-party (esm.sh) fallback, e.g. to keep a strict CSP
+    if (!window.EXCALIDRAW_SELF_HOSTED_FONTS) {
+      urls.push(new URL(assetUrl, ExcalidrawFontFace.ASSETS_FALLBACK_URL));
+    }
 
     return urls;
   }

@@ -30,6 +30,7 @@ const fnName = (prefix: string) => {
 };
 const apiFn = fnName('ApiFunction');
 const purgeFn = fnName('PurgeFunction');
+const gcFn = fnName('GcFunction');
 const user = `e2e-${crypto.randomUUID()}`;
 
 let failures = 0;
@@ -225,6 +226,10 @@ const delWs = await call('DELETE', `/api/workspaces/${ws}`);
 check('cleanup: workspace deleted', delWs.status === 204, delWs);
 const after = (await call('GET', '/api/workspaces')).body;
 check('cleanup: no workspaces left', after.workspaces.length === 0, after);
+
+// weekly cleanup job runs cleanly (it only deletes objects older than a day)
+const gc = await invoke(gcFn, {});
+check('cleanup Lambda runs', typeof gc.filesDeleted === 'number', gc);
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);
