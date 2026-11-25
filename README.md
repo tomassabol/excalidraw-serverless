@@ -13,7 +13,7 @@ running fully serverless on AWS and scaling to zero.
 
 ## Status
 
-Phases 0–2 done (bootstrap, stripped app, infrastructure). See [docs/PLAN.md](docs/PLAN.md).
+Phases 0–3 done (bootstrap, stripped app, infrastructure, backend API). See [docs/PLAN.md](docs/PLAN.md).
 
 ## Develop
 
@@ -43,6 +43,12 @@ cd infra && bunx cdk deploy --all -c ownerEmail=<your-email>
 `ownerEmail` creates the single Cognito user (Cognito emails a temporary
 password) and the monthly budget alert. The stack outputs include `AppUrl`;
 `https://<AppUrl>/api/health` should return `{"status":"ok"}`.
+
+End-to-end check of a deployed stack (uses a throwaway user and cleans up):
+
+```bash
+AWS_PROFILE=<profile> bun packages/api/scripts/e2e.ts
+```
 
 Optional GitHub Actions deploys: deploy once with `-c githubOidc=true`
 (add `-c githubOidcProviderArn=...` if the account already has the GitHub OIDC

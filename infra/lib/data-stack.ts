@@ -23,14 +23,6 @@ export class DataStack extends Stack {
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
-      globalSecondaryIndexes: [
-        {
-          // GSI1: children of a folder, sorted by type and name
-          indexName: 'GSI1',
-          partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
-          sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
-        },
-      ],
       // trash expiry; the stream feeds the purge Lambda
       timeToLiveAttribute: 'expiresAt',
       dynamoStream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,

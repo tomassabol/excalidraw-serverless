@@ -34,20 +34,40 @@ DynamoDB TTL expiry ─ Stream ─ Lambda "purge" (Powertools Batch) ─ deletes
 | `WS#<wsId>`  | `SCENE#<id>`  | folderId, name, nameLower, tags[], version, updatedAt, s3Key, deletedAt?, … |
 | `WS#<wsId>`  | `TAG#<name>`  | Collection (tag) definition                                                 |
 
-- GSI1 (`WS#<ws>#P#<parentId>`, `<type>#<nameLower>`): list a folder's children.
+- No secondary index: tree, search and trash read the whole workspace partition in one query, which is cheapest for a single user. Add an index only if a workspace grows to many thousands of items.
 - Search: query the workspace partition and filter on `nameLower`.
 - Trash: soft delete with a shared `trashBatchId`; TTL on `expiresAt`; stream → purge Lambda.
 - Saves use optimistic concurrency (`baseVersion`); a mismatch returns 409.
 - S3 keys: `ws/<ws>/scenes/<sceneId>.json`, `ws/<ws>/files/<fileId>` (content-addressed).
 
-### API (Cognito JWT on every route)
+### API (Cognito JWT on every route except `/api/health`)
 
-- `GET/POST/PATCH/DELETE /workspaces[/:id]`, `GET /workspaces/:id/tree`
-- `POST/PATCH/DELETE /folders[/:id]`
-- `POST /scenes`, `GET/PUT/PATCH /scenes/:id`
-- `POST /workspaces/:id/files/upload-urls`, `POST /workspaces/:id/files/download-urls`
-- `GET /workspaces/:id/search?q=`
-- `GET /workspaces/:id/trash`, `POST /trash/:batchId/restore`, `DELETE /trash/:batchId`
+All routes are under `/api`; workspace content is nested under its workspace.
+
+| Route                                             | Purpose                                                     |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| `GET /health`                                     | Public liveness check                                       |
+| `GET /me`                                         | Caller's user id                                            |
+| `GET /workspaces`, `POST /workspaces`             | List / create (idempotent with `Idempotency-Key`)           |
+| `PATCH /workspaces/:ws`, `DELETE /workspaces/:ws` | Rename / delete (only when empty, else 409)                 |
+| `GET /workspaces/:ws/tree`                        | Live folders, scene metadata and tags                       |
+| `GET /workspaces/:ws/search?q=`                   | Case-insensitive name search                                |
+| `POST /workspaces/:ws/folders`                    | Create (idempotent)                                         |
+| `PATCH /workspaces/:ws/folders/:id`               | Rename / move (cycle check)                                 |
+| `DELETE /workspaces/:ws/folders/:id`              | Trash folder + subtree as one batch                         |
+| `POST /workspaces/:ws/scenes`                     | Create, optionally with content (idempotent)                |
+| `GET /workspaces/:ws/scenes/:id`                  | Metadata + content                                          |
+| `PUT /workspaces/:ws/scenes/:id/content`          | Save with `baseVersion`; 409 + `currentVersion` on conflict |
+| `PATCH /workspaces/:ws/scenes/:id`                | Rename / move / tags                                        |
+| `DELETE /workspaces/:ws/scenes/:id`               | Trash                                                       |
+| `PUT`/`DELETE /workspaces/:ws/tags/:name`         | Tag color / remove tag everywhere                           |
+| `GET /workspaces/:ws/trash`                       | Trash batches                                               |
+| `POST /workspaces/:ws/trash/:batchId/restore`     | Restore (root goes to workspace root if its parent is gone) |
+| `DELETE /workspaces/:ws/trash/:batchId`           | Purge now                                                   |
+| `POST /workspaces/:ws/files/upload-urls`          | Presigned PUTs for images not stored yet                    |
+| `POST /workspaces/:ws/files/download-urls`        | Presigned GETs; reports missing ids                         |
+
+Scene content is written to a new versioned object (`v<n>.json`) before the conditional `version` update, so a conflicting save never overwrites current content; the previous object is deleted after a successful save.
 
 ### Powertools usage (`@aws-lambda-powertools/*` 2.37.0)
 
@@ -65,8 +85,8 @@ DynamoDB TTL expiry ─ Stream ─ Lambda "purge" (Powertools Batch) ─ deletes
 
 0. **Bootstrap** (done): repo, vendored Excalidraw, bun workspace, Biome, CI, license.
 1. **Strip the vendored app** (done): removed Firebase, collab, share links, AI/text-to-diagram, Excalidraw+ integration and promos, Sentry, analytics, PWA/service worker and social links; rebranded to "Whiteboard" with `noindex`. Scenes persist to browser storage until Phase 4.
-2. **Infrastructure (CDK)** (done): `Whiteboard-Data` (single table with GSI1, TTL, stream, PITR, deletion protection; data bucket; retained) and `Whiteboard-App` (Cognito with admin-only sign-up and managed login, HTTP API with JWT authorizer and throttling, `api` + `purge` Lambdas on Node 24/arm64 with X-Ray, idempotency table, web bucket + CloudFront with OAC, SPA rewrite function, security headers and `/api/*` behavior, web deploy with runtime `config.json`, budget alert). Optional `Whiteboard-GithubOidc` deploy role and a manual Deploy workflow.
-3. **Backend**: Powertools router, routes, repositories, purge handler, tests.
+2. **Infrastructure (CDK)** (done): `Whiteboard-Data` (single table with TTL, stream, PITR, deletion protection; data bucket; retained) and `Whiteboard-App` (Cognito with admin-only sign-up and managed login, HTTP API with JWT authorizer and throttling, `api` + `purge` Lambdas on Node 24/arm64 with X-Ray, idempotency table, web bucket + CloudFront with OAC, SPA rewrite function, security headers and `/api/*` behavior, web deploy with runtime `config.json`, budget alert). Optional `Whiteboard-GithubOidc` deploy role and a manual Deploy workflow.
+3. **Backend** (done): Powertools HTTP router with per-route zod validation (`@exs/shared` schemas), idempotent creates (Powertools Idempotency, separate table), Logger/Tracer/Metrics (per-route latency/error EMF plus SceneSaved, SceneBytes, SaveConflict, SceneCreated, ItemsTrashed, TrashPurged, FileUploadUrls), store for workspaces/folders/scenes/tags/trash/search/files, purge Lambda on Batch + Parser. Verified with `packages/api/scripts/e2e.ts` against the deployed stack.
 4. **Frontend** (`excalidraw-app/cloud/`): OIDC sign-in, routes, sidebar (workspaces, folder tree, tags, search, trash), autosave with conflict handling, image upload via presigned URLs.
 5. **AWS icons**: build-time download of the AWS Architecture Icons package, converted into a built-in library (never committed).
 6. **Hardening and docs**: CSP, log retention, alarms, README.
@@ -79,3 +99,4 @@ DynamoDB TTL expiry ─ Stream ─ Lambda "purge" (Powertools Batch) ─ deletes
 - Phase 0 spike: `bun install --ignore-scripts` works for the vendored yarn monorepo (husky's `prepare` hook fails inside a subtree, so scripts are skipped). Vite must run on Node (`bunx vite`, not `bunx --bun vite`): under the bun runtime the build hung, under Node it finishes in ~10 s.
 - Phase 1 notes: kept upstream behaviour that still works without a backend: browser-storage persistence and tab sync, image files in IndexedDB, "Browse libraries" (libraries.excalidraw.com), and library publishing (Excalidraw's public library backend). Edits stay in `excalidraw-app/` plus `public/` and the `.env.*` files; `packages/*` is untouched. Three `AnimationController` tests in `packages/excalidraw/tests/animation.test.ts` fail on pristine upstream too and are not related to these changes.
 - Phase 2 notes: the API currently serves `GET /api/health` (public) and `GET /api/me`; the purge Lambda only logs. The data bucket allows CORS from any origin because presigned URL signatures gate access (and it avoids a cross-stack dependency on the CloudFront domain). The Cognito owner user is retained even if a deploy omits `ownerEmail`.
+- Phase 3 notes: database-backed unit tests were dropped by choice (no DynamoDB emulator locally); `bun test` covers routing, auth and validation without a database, and `bun packages/api/scripts/e2e.ts` exercises the full API, presigned S3 uploads and the purge Lambda against a deployed stack with a throwaway user, then cleans up. Orphaned image files (no longer referenced by any scene) are not garbage-collected yet.

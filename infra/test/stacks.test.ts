@@ -32,14 +32,13 @@ beforeAll(() => {
 });
 
 describe('DataStack', () => {
-  test('table: on-demand, TTL on expiresAt, stream, PITR, GSI1, retained', () => {
+  test('table: on-demand, TTL on expiresAt, stream, PITR, retained', () => {
     data.hasResource('AWS::DynamoDB::GlobalTable', {
       DeletionPolicy: 'Retain',
       Properties: Match.objectLike({
         BillingMode: 'PAY_PER_REQUEST',
         TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
         StreamSpecification: { StreamViewType: 'NEW_AND_OLD_IMAGES' },
-        GlobalSecondaryIndexes: [Match.objectLike({ IndexName: 'GSI1' })],
         Replicas: [
           Match.objectLike({
             DeletionProtectionEnabled: true,
