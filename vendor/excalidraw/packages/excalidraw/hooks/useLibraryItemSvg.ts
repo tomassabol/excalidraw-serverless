@@ -1,21 +1,53 @@
 import { useEffect, useState } from "react";
 
+import type { FileId } from "@excalidraw/element/types";
+
 import { exportScene } from "../scene/export";
 
 import { atom, useAtom } from "../editor-jotai";
 
-import type { LibraryItem } from "../types";
+import type { BinaryFiles, LibraryItem } from "../types";
 
 export type SvgCache = Map<LibraryItem["id"], SVGSVGElement>;
 
 export const libraryItemSvgsCache = atom<SvgCache>(new Map());
+
+// excalidraw-serverless patch: lets the host app supply image files for
+// library item previews (library items can't carry files themselves).
+export type LibraryFilesResolver = (
+  fileIds: readonly FileId[],
+) => Promise<BinaryFiles>;
+
+let libraryFilesResolver: LibraryFilesResolver | null = null;
+
+export const setLibraryFilesResolver = (
+  resolver: LibraryFilesResolver | null,
+) => {
+  libraryFilesResolver = resolver;
+};
+
+const resolveLibraryItemFiles = async (
+  elements: LibraryItem["elements"],
+): Promise<BinaryFiles | null> => {
+  const fileIds = elements.flatMap((element) =>
+    element.type === "image" && element.fileId ? [element.fileId] : [],
+  );
+  if (!fileIds.length || !libraryFilesResolver) {
+    return null;
+  }
+  try {
+    return await libraryFilesResolver(fileIds);
+  } catch {
+    return null;
+  }
+};
 
 const exportLibraryItemToSvg = async (elements: LibraryItem["elements"]) => {
   return await exportScene({
     type: "svg",
     data: {
       elements,
-      files: null,
+      files: await resolveLibraryItemFiles(elements),
     },
     config: {
       skipInliningFonts: true,

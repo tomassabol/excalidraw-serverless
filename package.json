@@ -13,10 +13,11 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "web:install": "cd vendor/excalidraw && bun install --ignore-scripts",
-    "web:dev": "cd vendor/excalidraw/excalidraw-app && bunx vite",
-    "web:build": "cd vendor/excalidraw/excalidraw-app && VITE_APP_DISABLE_SENTRY=true bunx vite build",
+    "web:dev": "bun run web:icons && cd vendor/excalidraw/excalidraw-app && bunx vite",
+    "web:build": "bun run web:icons && cd vendor/excalidraw/excalidraw-app && VITE_APP_DISABLE_SENTRY=true bunx vite build",
     "upstream:pull": "git subtree pull --prefix vendor/excalidraw upstream master --squash",
-    "synth": "bun run web:build && cd infra && bunx cdk synth"
+    "synth": "bun run web:build && cd infra && bunx cdk synth",
+    "web:icons": "bun scripts/build-aws-icons.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.9",

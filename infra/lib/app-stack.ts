@@ -314,12 +314,17 @@ function handler(event) {
     const webBuildDir = path.resolve(REPO_ROOT, 'infra', config.webBuildDir);
     const hasWebBuild = existsSync(path.join(webBuildDir, 'index.html'));
 
-    // Hashed assets: cache for a year. index.html/404.html and config.json are
-    // deployed separately with no-cache so a deploy takes effect immediately.
+    // Hashed and content-addressed assets: cache for a year. index.html,
+    // 404.html, config.json and the AWS icon manifest are deployed separately
+    // with no-cache so a deploy takes effect immediately.
     if (hasWebBuild) {
       new s3deploy.BucketDeployment(this, 'DeployAssets', {
         destinationBucket: webBucket,
-        sources: [s3deploy.Source.asset(webBuildDir, { exclude: ['index.html', '404.html'] })],
+        sources: [
+          s3deploy.Source.asset(webBuildDir, {
+            exclude: ['index.html', '404.html', 'aws-icons/library.json'],
+          }),
+        ],
         cacheControl: [s3deploy.CacheControl.fromString('public, max-age=31536000, immutable')],
         prune: false,
         memoryLimit: 1024,
@@ -331,7 +336,13 @@ function handler(event) {
         ...(hasWebBuild
           ? [
               s3deploy.Source.asset(webBuildDir, {
-                exclude: ['*', '!index.html', '!404.html'],
+                exclude: [
+                  '**',
+                  '!index.html',
+                  '!404.html',
+                  '!aws-icons',
+                  '!aws-icons/library.json',
+                ],
               }),
             ]
           : []),
@@ -340,7 +351,7 @@ function handler(event) {
       cacheControl: [s3deploy.CacheControl.fromString('no-cache')],
       prune: false,
       distribution,
-      distributionPaths: ['/index.html', '/404.html', '/config.json'],
+      distributionPaths: ['/index.html', '/404.html', '/config.json', '/aws-icons/library.json'],
     });
 
     // -------------------------------------------------------------------------

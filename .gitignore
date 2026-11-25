@@ -14,3 +14,4 @@ coverage/
 generated/aws-icons/
 infra/cdk-outputs.json
 cdk.context.local.json
+vendor/excalidraw/public/aws-icons/

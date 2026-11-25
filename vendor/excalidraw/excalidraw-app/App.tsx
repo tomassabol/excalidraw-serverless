@@ -25,6 +25,7 @@ import polyfill from "@excalidraw/excalidraw/polyfill";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isElementLink } from "@excalidraw/element";
 import { useHandleLibrary } from "@excalidraw/excalidraw/data/library";
+import { setLibraryFilesResolver } from "@excalidraw/excalidraw/hooks/useLibraryItemSvg";
 
 import type {
   NonDeletedExcalidrawElement,
@@ -32,6 +33,7 @@ import type {
 } from "@excalidraw/element/types";
 import type {
   AppState,
+  BinaryFiles,
   ExcalidrawInitialDataState,
   UIAppState,
   ExcalidrawProps,
@@ -57,6 +59,11 @@ import DebugCanvas, {
   loadSavedDebugState,
 } from "./components/DebugCanvas";
 import { AuthGate } from "./cloud/AuthGate";
+import {
+  resolveAwsIconFiles,
+  supplyAwsIconFiles,
+  withAwsIcons,
+} from "./cloud/awsIcons";
 import { CloudProvider, useCloud } from "./cloud/CloudProvider";
 import { CloudStatus, WORKSPACE_TAB } from "./cloud/CloudStatus";
 import { WorkspacePanel, folderIcon } from "./cloud/WorkspacePanel";
@@ -66,6 +73,9 @@ import "./index.scss";
 polyfill();
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
+
+// library previews of the built-in AWS icons need their SVG files
+setLibraryFilesResolver(resolveAwsIconFiles);
 
 const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
@@ -100,7 +110,8 @@ const ExcalidrawWrapper = () => {
 
   useHandleLibrary({
     excalidrawAPI,
-    adapter: LibraryIndexedDBAdapter,
+    // also merges the built-in AWS icons into the library
+    adapter: withAwsIcons(LibraryIndexedDBAdapter),
     // TODO maybe remove this in several months (shipped: 24-03-11)
     migrationAdapter: LibraryLocalStorageMigrationAdapter,
   });
@@ -147,8 +158,12 @@ const ExcalidrawWrapper = () => {
   const onChange = (
     elements: readonly OrderedExcalidrawElement[],
     appState: AppState,
+    files: BinaryFiles,
   ) => {
     cloud.onEditorChange(elements, appState);
+    if (excalidrawAPI) {
+      supplyAwsIconFiles(excalidrawAPI, elements, files);
+    }
 
     // Render the debug scene if the debug canvas is available
     if (debugCanvasRef.current && excalidrawAPI) {

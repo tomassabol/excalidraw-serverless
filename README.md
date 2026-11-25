@@ -13,7 +13,7 @@ running fully serverless on AWS and scaling to zero.
 
 ## Status
 
-Phases 0–4 done (bootstrap, stripped app, infrastructure, backend API, cloud-backed frontend). See [docs/PLAN.md](docs/PLAN.md).
+Phases 0–5 done (bootstrap, stripped app, infrastructure, backend API, cloud-backed frontend, AWS icons). See [docs/PLAN.md](docs/PLAN.md).
 
 ## Develop
 
