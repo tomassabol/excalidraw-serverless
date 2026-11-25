@@ -12,3 +12,5 @@ coverage/
 # AWS icons are downloaded at build time and must not be committed
 .cache/
 generated/aws-icons/
+infra/cdk-outputs.json
+cdk.context.local.json
