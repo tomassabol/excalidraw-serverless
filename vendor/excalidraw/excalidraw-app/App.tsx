@@ -133,6 +133,30 @@ const ExcalidrawWrapper = () => {
     }
   }, [excalidrawAPI]);
 
+  // Cmd/Ctrl+S does nothing: scenes autosave, so neither the editor's
+  // "save to file" nor the browser's "save page" should run. Registered on
+  // window in the capture phase, so it runs before the editor's handler.
+  useEffect(() => {
+    const blockSaveShortcut = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "s"
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener(EVENT.KEYDOWN, blockSaveShortcut, {
+      capture: true,
+    });
+    return () =>
+      window.removeEventListener(EVENT.KEYDOWN, blockSaveShortcut, {
+        capture: true,
+      });
+  }, []);
+
   // save when the tab is hidden; warn before leaving with unsaved changes
   const { flush, hasUnsavedChanges } = cloud;
   useEffect(() => {

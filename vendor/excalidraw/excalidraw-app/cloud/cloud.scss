@@ -219,7 +219,6 @@
   &__chevron {
     width: 0.75rem;
     color: var(--color-gray-50);
-    transition: transform 0.1s;
 
     &--closed {
       transform: rotate(-90deg);
@@ -447,5 +446,14 @@
     &:hover {
       background: #5b57d1;
     }
+  }
+}
+
+// No animations in the library: the "add to library" tile pulses forever
+// upstream, and thumbnails fade in while they render.
+.excalidraw-app .excalidraw {
+  .library-unit__adder,
+  .library-unit--skeleton {
+    animation: none;
   }
 }
