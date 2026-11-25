@@ -6,7 +6,8 @@
     "typecheck": "tsc -p .",
     "synth": "cdk synth",
     "deploy": "cdk deploy --all",
-    "diff": "cdk diff"
+    "diff": "cdk diff",
+    "test": "bun test"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.278.0",

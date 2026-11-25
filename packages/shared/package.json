@@ -6,7 +6,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
     "zod": "^4.6.7"
