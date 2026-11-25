@@ -15,11 +15,9 @@ export const AppWelcomeScreen: React.FC = React.memo(() => {
       <WelcomeScreen.Center>
         <WelcomeScreen.Center.Logo />
         <WelcomeScreen.Center.Heading>
-          {t("welcomeScreen.app.center_heading")}
+          Your scenes are saved to your workspace automatically.
           <br />
-          {t("welcomeScreen.app.center_heading_line2")}
-          <br />
-          {t("welcomeScreen.app.center_heading_line3")}
+          Open the workspace panel to browse folders and scenes.
         </WelcomeScreen.Center.Heading>
         <WelcomeScreen.Center.Menu>
           <WelcomeScreen.Center.MenuItemLoadScene />

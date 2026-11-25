@@ -13,16 +13,21 @@ running fully serverless on AWS and scaling to zero.
 
 ## Status
 
-Phases 0–3 done (bootstrap, stripped app, infrastructure, backend API). See [docs/PLAN.md](docs/PLAN.md).
+Phases 0–4 done (bootstrap, stripped app, infrastructure, backend API, cloud-backed frontend). See [docs/PLAN.md](docs/PLAN.md).
 
 ## Develop
 
 ```bash
 bun install            # root workspace (API, infra)
 bun run web:install    # vendored Excalidraw app
-bun run web:dev        # http://localhost:3001
+bun run web:dev        # http://localhost:3001 (see below for a backend)
 bun run test           # API + infra tests
 ```
+
+To run the web app locally against a deployed stack, create
+`vendor/excalidraw/.env.development.local` with
+`VITE_APP_DEV_BACKEND_URL=https://<AppUrl>`; the dev server proxies `/api` and
+`/config.json` there and you sign in with the same Cognito user.
 
 ## Deploy
 

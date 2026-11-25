@@ -1,45 +1,37 @@
-// excalidraw-serverless: slimmed-down app shell.
+// excalidraw-serverless: app shell.
 // Collaboration, Firebase, share links, AI, Excalidraw+ integration, Sentry
-// and PWA were removed. Scenes persist to browser storage for now; cloud
-// persistence is added under ./cloud in a later phase.
+// and PWA were removed. Scenes are stored in the cloud API (see ./cloud);
+// the library stays in browser storage.
 import {
+  DefaultSidebar,
   Excalidraw,
-  CaptureUpdateAction,
   ExcalidrawAPIProvider,
+  Sidebar,
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
-import { CommandPalette } from "@excalidraw/excalidraw/components/CommandPalette/CommandPalette";
-import { ErrorDialog } from "@excalidraw/excalidraw/components/ErrorDialog";
+import {
+  CommandPalette,
+  DEFAULT_CATEGORIES,
+} from "@excalidraw/excalidraw/components/CommandPalette/CommandPalette";
 import { OverwriteConfirmDialog } from "@excalidraw/excalidraw/components/OverwriteConfirm/OverwriteConfirm";
 import {
+  DEFAULT_SIDEBAR,
   EVENT,
-  debounce,
-  isTestEnv,
+  isDevEnv,
   preventUnload,
   resolvablePromise,
-  isDevEnv,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { t } from "@excalidraw/excalidraw/i18n";
 import { isElementLink } from "@excalidraw/element";
-import {
-  restoreAppState,
-  restoreElements,
-} from "@excalidraw/excalidraw/data/restore";
-import { newElementWith } from "@excalidraw/element";
-import { isInitializedImageElement } from "@excalidraw/element";
 import { useHandleLibrary } from "@excalidraw/excalidraw/data/library";
 
 import type {
-  ExcalidrawElement,
-  FileId,
   NonDeletedExcalidrawElement,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
 import type {
   AppState,
-  BinaryFiles,
   ExcalidrawInitialDataState,
   UIAppState,
   ExcalidrawProps,
@@ -47,30 +39,27 @@ import type {
 import type { ResolvablePromise } from "@excalidraw/common/utils";
 
 import CustomStats from "./CustomStats";
-import { Provider, useAtomValue, appJotaiStore } from "./app-jotai";
-import { STORAGE_KEYS, SYNC_BROWSER_TABS_TIMEOUT } from "./app_constants";
+import { Provider, appJotaiStore } from "./app-jotai";
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import { TopErrorBoundary } from "./components/TopErrorBoundary";
-import { updateStaleImageStatuses } from "./data/FileManager";
 import { FileStatusStore } from "./data/fileStatusStore";
-import { importFromLocalStorage } from "./data/localStorage";
 import {
   LibraryIndexedDBAdapter,
   LibraryLocalStorageMigrationAdapter,
-  LocalData,
-  localStorageQuotaExceededAtom,
 } from "./data/LocalData";
-import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { useHandleAppTheme } from "./useHandleAppTheme";
-import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
 import DebugCanvas, {
   debugRenderer,
   isVisualDebuggerEnabled,
   loadSavedDebugState,
 } from "./components/DebugCanvas";
+import { AuthGate } from "./cloud/AuthGate";
+import { CloudProvider, useCloud } from "./cloud/CloudProvider";
+import { CloudStatus, WORKSPACE_TAB } from "./cloud/CloudStatus";
+import { WorkspacePanel, folderIcon } from "./cloud/WorkspacePanel";
 
 import "./index.scss";
 
@@ -78,45 +67,33 @@ polyfill();
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
 
-const getImageFileIds = (
-  elements: readonly ExcalidrawElement[] | null | undefined,
-) =>
-  (elements || []).reduce((acc, element) => {
-    if (isInitializedImageElement(element)) {
-      return acc.concat(element.fileId);
-    }
-    return acc;
-  }, [] as FileId[]);
-
-const initializeScene = (): ExcalidrawInitialDataState => {
-  const localDataState = importFromLocalStorage();
-  return {
-    elements: restoreElements(localDataState?.elements, null, {
-      repairBindings: true,
-      deleteInvisibleElements: true,
-    }),
-    appState: restoreAppState(localDataState?.appState, null),
-  };
-};
-
 const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
-
-  const [errorMessage, setErrorMessage] = useState("");
+  const cloud = useCloud();
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
 
-  const [langCode, setLangCode] = useAppLangCode();
+  const [langCode] = useAppLangCode();
 
-  // initial state
-  // ---------------------------------------------------------------------------
-
+  // The editor starts empty; the cloud provider loads the scene from the URL.
   const initialStatePromiseRef = useRef<{
     promise: ResolvablePromise<ExcalidrawInitialDataState | null>;
   }>({ promise: null! });
   if (!initialStatePromiseRef.current.promise) {
     initialStatePromiseRef.current.promise =
       resolvablePromise<ExcalidrawInitialDataState | null>();
+    // On wide screens the workspace panel starts open and docked, so it stays
+    // open while drawing (the dock button still toggles it).
+    const wide = window.innerWidth >= 1200;
+    initialStatePromiseRef.current.promise.resolve({
+      elements: [],
+      appState: wide
+        ? {
+            defaultSidebarDockedPreference: true,
+            openSidebar: { name: DEFAULT_SIDEBAR.name, tab: WORKSPACE_TAB },
+          }
+        : {},
+    });
   }
 
   const debugCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -145,170 +122,33 @@ const ExcalidrawWrapper = () => {
     }
   }, [excalidrawAPI]);
 
-  const loadLocalImages = useCallback(
-    (fileIds: FileId[]) => {
-      if (!excalidrawAPI || !fileIds.length) {
-        return;
-      }
-      LocalData.fileStorage
-        .getFiles(fileIds)
-        .then(({ loadedFiles, erroredFiles }) => {
-          if (loadedFiles.length) {
-            excalidrawAPI.addFiles(loadedFiles);
-          }
-          updateStaleImageStatuses({
-            excalidrawAPI,
-            erroredFiles,
-            elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
-          });
-        });
-    },
-    [excalidrawAPI],
-  );
-
+  // save when the tab is hidden; warn before leaving with unsaved changes
+  const { flush, hasUnsavedChanges } = cloud;
   useEffect(() => {
-    if (!excalidrawAPI) {
-      return;
-    }
-
-    const scene = initializeScene();
-    const fileIds = getImageFileIds(scene.elements);
-    loadLocalImages(fileIds);
-    // on fresh load, clear unused files from IDB (from previous session)
-    LocalData.fileStorage.clearObsoleteFiles({ currentFileIds: fileIds });
-    initialStatePromiseRef.current.promise.resolve(scene);
-
-    // keep several open tabs in sync through browser storage
-    const syncData = debounce(() => {
-      if (isTestEnv() || document.hidden) {
-        return;
-      }
-      // don't sync if local state is newer or identical to browser state
-      if (isBrowserStorageStateNewer(STORAGE_KEYS.VERSION_DATA_STATE)) {
-        const localDataState = importFromLocalStorage();
-        setLangCode(getPreferredLanguage());
-        excalidrawAPI.updateScene({
-          ...localDataState,
-          // a text edit goes on through the sync: its editor takes the
-          // synced text, or closes if the text is gone
-          appState: localDataState.appState && {
-            ...localDataState.appState,
-            editingTextElement: excalidrawAPI.getAppState().editingTextElement,
-          },
-          captureUpdate: CaptureUpdateAction.NEVER,
-        });
-        LibraryIndexedDBAdapter.load().then((data) => {
-          if (data) {
-            excalidrawAPI.updateLibrary({
-              libraryItems: data.libraryItems,
-            });
-          }
-        });
-      }
-
-      if (isBrowserStorageStateNewer(STORAGE_KEYS.VERSION_FILES)) {
-        const currFiles = excalidrawAPI.getFiles();
-        loadLocalImages(
-          getImageFileIds(
-            excalidrawAPI.getSceneElementsIncludingDeleted(),
-          ).filter((id) => !currFiles[id]),
-        );
-      }
-    }, SYNC_BROWSER_TABS_TIMEOUT);
-
-    const onUnload = () => {
-      LocalData.flushSave();
-    };
-
-    const visibilityChange = (event: FocusEvent | Event) => {
-      if (event.type === EVENT.BLUR || document.hidden) {
-        LocalData.flushSave();
-      }
-      if (
-        event.type === EVENT.VISIBILITY_CHANGE ||
-        event.type === EVENT.FOCUS
-      ) {
-        syncData();
+    const onVisibility = () => {
+      if (document.hidden) {
+        void flush();
       }
     };
-
-    window.addEventListener(EVENT.UNLOAD, onUnload, false);
-    window.addEventListener(EVENT.BLUR, visibilityChange, false);
-    document.addEventListener(EVENT.VISIBILITY_CHANGE, visibilityChange, false);
-    window.addEventListener(EVENT.FOCUS, visibilityChange, false);
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges()) {
+        void flush();
+        preventUnload(event);
+      }
+    };
+    document.addEventListener(EVENT.VISIBILITY_CHANGE, onVisibility);
+    window.addEventListener(EVENT.BEFORE_UNLOAD, onBeforeUnload);
     return () => {
-      window.removeEventListener(EVENT.UNLOAD, onUnload, false);
-      window.removeEventListener(EVENT.BLUR, visibilityChange, false);
-      window.removeEventListener(EVENT.FOCUS, visibilityChange, false);
-      document.removeEventListener(
-        EVENT.VISIBILITY_CHANGE,
-        visibilityChange,
-        false,
-      );
+      document.removeEventListener(EVENT.VISIBILITY_CHANGE, onVisibility);
+      window.removeEventListener(EVENT.BEFORE_UNLOAD, onBeforeUnload);
     };
-  }, [excalidrawAPI, setLangCode, loadLocalImages]);
-
-  useEffect(() => {
-    const unloadHandler = (event: BeforeUnloadEvent) => {
-      LocalData.flushSave();
-
-      if (
-        excalidrawAPI &&
-        LocalData.fileStorage.shouldPreventUnload(
-          excalidrawAPI.getSceneElements(),
-        )
-      ) {
-        if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
-          preventUnload(event);
-        } else {
-          console.warn(
-            "preventing unload disabled (VITE_APP_DISABLE_PREVENT_UNLOAD)",
-          );
-        }
-      }
-    };
-    window.addEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
-    return () => {
-      window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
-    };
-  }, [excalidrawAPI]);
+  }, [flush, hasUnsavedChanges]);
 
   const onChange = (
     elements: readonly OrderedExcalidrawElement[],
     appState: AppState,
-    files: BinaryFiles,
   ) => {
-    // this check is redundant, but since this is a hot path, it's best
-    // not to evaludate the nested expression every time
-    if (!LocalData.isSavePaused()) {
-      LocalData.save(elements, appState, files, () => {
-        if (excalidrawAPI) {
-          let didChange = false;
-
-          const elements = excalidrawAPI
-            .getSceneElementsIncludingDeleted()
-            .map((element) => {
-              if (
-                LocalData.fileStorage.shouldUpdateImageElementStatus(element)
-              ) {
-                const newElement = newElementWith(element, { status: "saved" });
-                if (newElement !== element) {
-                  didChange = true;
-                }
-                return newElement;
-              }
-              return element;
-            });
-
-          if (didChange) {
-            excalidrawAPI.updateScene({
-              elements,
-              captureUpdate: CaptureUpdateAction.NEVER,
-            });
-          }
-        }
-      });
-    }
+    cloud.onEditorChange(elements, appState);
 
     // Render the debug scene if the debug canvas is available
     if (debugCanvasRef.current && excalidrawAPI) {
@@ -333,8 +173,6 @@ const ExcalidrawWrapper = () => {
       />
     );
   };
-
-  const localStorageQuotaExceeded = useAtomValue(localStorageQuotaExceededAtom);
 
   // ---------------------------------------------------------------------------
   // onExport — intercepts file save to wait for pending image loads
@@ -381,12 +219,20 @@ const ExcalidrawWrapper = () => {
     [],
   );
 
+  const openWorkspacePanel = () =>
+    excalidrawAPI?.toggleSidebar({
+      name: DEFAULT_SIDEBAR.name,
+      tab: WORKSPACE_TAB,
+      force: true,
+    });
+
   return (
     <div style={{ height: "100%" }} className="excalidraw-app">
       <Excalidraw
         onChange={onChange}
         onExport={onExport}
         initialData={initialStatePromiseRef.current.promise}
+        name={cloud.currentScene?.name}
         UIOptions={{
           canvasActions: {
             toggleTheme: true,
@@ -399,6 +245,13 @@ const ExcalidrawWrapper = () => {
         autoFocus={true}
         theme={editorTheme}
         onThemeChange={setAppTheme}
+        renderTopRightUI={(isMobile) =>
+          isMobile ? null : (
+            <div className="excalidraw-ui-top-right">
+              <CloudStatus />
+            </div>
+          )
+        }
         onLinkOpen={(element, event) => {
           if (element.link && isElementLink(element.link)) {
             event.preventDefault();
@@ -413,6 +266,8 @@ const ExcalidrawWrapper = () => {
         <AppMainMenu
           theme={appTheme}
           refresh={() => forceRefresh((prev) => !prev)}
+          onOpenWorkspace={openWorkspacePanel}
+          onSignOut={() => void cloud.actions.signOut()}
         />
         <AppWelcomeScreen />
         <OverwriteConfirmDialog>
@@ -421,19 +276,42 @@ const ExcalidrawWrapper = () => {
         </OverwriteConfirmDialog>
         <AppFooter onChange={() => excalidrawAPI?.refresh()} />
 
-        {localStorageQuotaExceeded && (
-          <div className="alert alert--danger">
-            {t("alerts.localStorageQuotaExceeded")}
-          </div>
-        )}
+        <DefaultSidebar>
+          <DefaultSidebar.TabTriggers>
+            <Sidebar.TabTrigger tab={WORKSPACE_TAB} title="Workspace">
+              {folderIcon}
+            </Sidebar.TabTrigger>
+          </DefaultSidebar.TabTriggers>
+          <Sidebar.Tab tab={WORKSPACE_TAB} className="cloud-sidebar-tab">
+            <WorkspacePanel />
+          </Sidebar.Tab>
+        </DefaultSidebar>
 
-        {errorMessage && (
-          <ErrorDialog onClose={() => setErrorMessage("")}>
-            {errorMessage}
-          </ErrorDialog>
-        )}
-
-        <CommandPalette />
+        <CommandPalette
+          customCommandPaletteItems={[
+            {
+              label: "New scene",
+              category: DEFAULT_CATEGORIES.app,
+              predicate: true,
+              keywords: ["create", "scene", "drawing", "file"],
+              perform: () => void cloud.actions.createScene(null),
+            },
+            {
+              label: "Open workspace panel",
+              category: DEFAULT_CATEGORIES.app,
+              predicate: true,
+              keywords: ["folders", "scenes", "browse", "files", "trash"],
+              perform: openWorkspacePanel,
+            },
+            {
+              label: "Sign out",
+              category: DEFAULT_CATEGORIES.app,
+              predicate: true,
+              keywords: ["logout", "log out", "account"],
+              perform: () => void cloud.actions.signOut(),
+            },
+          ]}
+        />
         {isVisualDebuggerEnabled() && excalidrawAPI && (
           <DebugCanvas
             appState={excalidrawAPI.getAppState()}
@@ -450,9 +328,13 @@ const ExcalidrawApp = () => {
   return (
     <TopErrorBoundary>
       <Provider store={appJotaiStore}>
-        <ExcalidrawAPIProvider>
-          <ExcalidrawWrapper />
-        </ExcalidrawAPIProvider>
+        <AuthGate>
+          <ExcalidrawAPIProvider>
+            <CloudProvider>
+              <ExcalidrawWrapper />
+            </CloudProvider>
+          </ExcalidrawAPIProvider>
+        </AuthGate>
       </Provider>
     </TopErrorBoundary>
   );

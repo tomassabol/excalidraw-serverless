@@ -1,0 +1,451 @@
+// excalidraw-serverless: workspace UI. Uses Excalidraw's theme variables so it
+// follows light/dark mode.
+
+.cloud-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 0.25rem;
+  padding: 0 0.5rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary-color);
+  overflow: hidden;
+}
+
+.cloud-section {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+}
+
+.cloud-workspace {
+  .cloud-select,
+  .cloud-input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.cloud-select,
+.cloud-input {
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--default-border-color);
+  border-radius: var(--border-radius-lg, 0.5rem);
+  background: var(--input-bg-color, var(--island-bg-color));
+  color: var(--text-primary-color);
+  font: inherit;
+  min-width: 0;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.cloud-search {
+  position: relative;
+
+  .cloud-input {
+    flex: 1;
+    padding-left: 1.75rem;
+  }
+
+  &__icon {
+    position: absolute;
+    left: 0.5rem;
+    width: 1rem;
+    height: 1rem;
+    color: var(--color-gray-50);
+    pointer-events: none;
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
+}
+
+.cloud-tags {
+  flex-wrap: wrap;
+}
+
+.cloud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--default-border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary-color);
+  font-size: 0.75rem;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--button-hover-bg);
+  }
+
+  &--active {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+  }
+
+  &--ghost {
+    border-style: dashed;
+    color: var(--color-gray-50);
+  }
+}
+
+.cloud-tag-dot {
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.cloud-tag-editor {
+  flex-direction: column;
+  align-items: stretch;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    input[type="color"] {
+      width: 1.5rem;
+      height: 1.5rem;
+      padding: 0;
+      border: none;
+      background: none;
+      cursor: pointer;
+    }
+  }
+}
+
+.cloud-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+}
+
+.cloud-button {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--default-border-color);
+  border-radius: var(--border-radius-lg, 0.5rem);
+  background: transparent;
+  color: var(--text-primary-color);
+  font: inherit;
+  cursor: pointer;
+
+  svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  &:hover {
+    background: var(--button-hover-bg);
+  }
+}
+
+.cloud-tree {
+  flex: 1;
+  min-height: 4rem;
+  overflow-y: auto;
+  border-radius: var(--border-radius-lg, 0.5rem);
+
+  &--drop {
+    outline: 2px dashed var(--color-primary);
+    outline-offset: -2px;
+  }
+}
+
+.cloud-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.9rem;
+  padding-right: 0.25rem;
+  border-radius: var(--border-radius-md, 0.375rem);
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    background: var(--button-hover-bg);
+
+    .cloud-row__actions {
+      visibility: visible;
+    }
+  }
+
+  &--active {
+    background: var(--color-primary-light);
+    font-weight: 600;
+  }
+
+  &--drop {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  &--static {
+    cursor: default;
+  }
+
+  &__chevron,
+  &__icon {
+    display: inline-flex;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  &__chevron {
+    width: 0.75rem;
+    color: var(--color-gray-50);
+    transition: transform 0.1s;
+
+    &--closed {
+      transform: rotate(-90deg);
+    }
+  }
+
+  &__label {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  &__path {
+    overflow: hidden;
+    color: var(--color-gray-50);
+    font-size: 0.7rem;
+    font-weight: normal;
+    text-overflow: ellipsis;
+  }
+
+  &__tags {
+    display: inline-flex;
+    gap: 2px;
+  }
+
+  &__actions {
+    display: inline-flex;
+    visibility: hidden;
+
+    &--visible {
+      visibility: visible;
+    }
+  }
+
+  .cloud-input {
+    flex: 1;
+    height: 1.6rem;
+  }
+}
+
+.cloud-row-editor {
+  display: flex;
+  padding: 0.15rem 0.25rem 0.15rem 0;
+
+  .cloud-input {
+    flex: 1;
+    height: 1.6rem;
+  }
+}
+
+.cloud-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0.3rem;
+  border: none;
+  border-radius: var(--border-radius-md, 0.375rem);
+  background: transparent;
+  color: var(--color-gray-60, currentColor);
+  cursor: pointer;
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  &:hover {
+    background: var(--button-hover-bg);
+    color: var(--text-primary-color);
+  }
+
+  &--danger:hover {
+    color: var(--color-danger, #e03131);
+  }
+}
+
+.cloud-empty-hint,
+.cloud-muted {
+  color: var(--color-gray-50);
+  font-size: 0.75rem;
+}
+
+.cloud-empty-hint {
+  padding: 0.35rem 0.5rem;
+}
+
+.cloud-error {
+  padding: 1rem 0.5rem;
+  color: var(--color-danger, #e03131);
+}
+
+.cloud-trash {
+  flex-direction: column;
+  align-items: stretch;
+  border-top: 1px solid var(--default-border-color);
+
+  &__toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 1.9rem;
+    padding: 0 0.5rem;
+    border: none;
+    border-radius: var(--border-radius-md, 0.375rem);
+    background: transparent;
+    color: var(--text-primary-color);
+    font: inherit;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--button-hover-bg);
+    }
+  }
+
+  &__list {
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+}
+
+// top-right status button
+.cloud-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 22rem;
+  height: var(--lg-button-size, 2.25rem);
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: var(--border-radius-lg, 0.5rem);
+  background: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  color: var(--text-primary-color);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--button-hover-bg);
+  }
+
+  &__icon {
+    display: inline-flex;
+    width: 1rem;
+    height: 1rem;
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  &__name {
+    overflow: hidden;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  &__state {
+    flex: none;
+    color: var(--color-gray-50);
+    font-size: 0.75rem;
+
+    &--error,
+    &--conflict {
+      color: var(--color-danger, #e03131);
+    }
+
+    &--dirty,
+    &--saving {
+      color: var(--color-warning-dark, #f08c00);
+    }
+  }
+}
+
+// sign-in screen
+.cloud-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: #fff;
+  color: #1b1b1f;
+  font-family: system-ui, sans-serif;
+
+  html.dark & {
+    background: #121212;
+    color: #e3e3e8;
+  }
+
+  &__card {
+    width: min(22rem, calc(100% - 2rem));
+    text-align: center;
+  }
+
+  &__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.75rem;
+  }
+
+  &__text {
+    margin: 0 0 1.5rem;
+    color: #6b6b75;
+  }
+
+  &__button {
+    height: 2.5rem;
+    padding: 0 1.5rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: #6965db;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      background: #5b57d1;
+    }
+  }
+}
