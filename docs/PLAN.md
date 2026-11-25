@@ -64,7 +64,7 @@ DynamoDB TTL expiry ─ Stream ─ Lambda "purge" (Powertools Batch) ─ deletes
 ## Phases
 
 0. **Bootstrap** (done): repo, vendored Excalidraw, bun workspace, Biome, CI, license.
-1. **Strip the vendored app**: remove Firebase, collab, share links, AI, Excalidraw+ promos, tracking; rebrand. App still runs locally.
+1. **Strip the vendored app** (done): removed Firebase, collab, share links, AI/text-to-diagram, Excalidraw+ integration and promos, Sentry, analytics, PWA/service worker and social links; rebranded to "Whiteboard" with `noindex`. Scenes persist to browser storage until Phase 4.
 2. **Infrastructure (CDK)**: DataStack (tables, data bucket; retained), AppStack (Cognito, HTTP API, Lambdas, web bucket, CloudFront, budget alarm), GitHub OIDC deploy role.
 3. **Backend**: Powertools router, routes, repositories, purge handler, tests.
 4. **Frontend** (`excalidraw-app/cloud/`): OIDC sign-in, routes, sidebar (workspaces, folder tree, tags, search, trash), autosave with conflict handling, image upload via presigned URLs.
@@ -77,3 +77,4 @@ DynamoDB TTL expiry ─ Stream ─ Lambda "purge" (Powertools Batch) ─ deletes
 - Keep new frontend code in `vendor/excalidraw/excalidraw-app/cloud/` and keep edits to existing upstream files small.
 - The vendored app has its own bun install root (`bun run web:install`), separate from the root workspace.
 - Phase 0 spike: `bun install --ignore-scripts` works for the vendored yarn monorepo (husky's `prepare` hook fails inside a subtree, so scripts are skipped). Vite must run on Node (`bunx vite`, not `bunx --bun vite`): under the bun runtime the build hung, under Node it finishes in ~10 s.
+- Phase 1 notes: kept upstream behaviour that still works without a backend: browser-storage persistence and tab sync, image files in IndexedDB, "Browse libraries" (libraries.excalidraw.com), and library publishing (Excalidraw's public library backend). Edits stay in `excalidraw-app/` plus `public/` and the `.env.*` files; `packages/*` is untouched. Three `AnimationController` tests in `packages/excalidraw/tests/animation.test.ts` fail on pristine upstream too and are not related to these changes.
