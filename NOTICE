@@ -1,0 +1,11 @@
+This project includes a vendored copy of Excalidraw under vendor/excalidraw,
+added with `git subtree` from https://github.com/excalidraw/excalidraw.
+
+Excalidraw is licensed under the MIT License, Copyright (c) 2020 Excalidraw.
+The full license text is in vendor/excalidraw/LICENSE.
+
+This project is not affiliated with or endorsed by the Excalidraw project.
+
+AWS Architecture Icons are not included in this repository. They are downloaded
+at build time from https://aws.amazon.com/architecture/icons/ and are subject to
+AWS's terms for their use.

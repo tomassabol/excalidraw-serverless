@@ -1,0 +1,23 @@
+{
+  "name": "@exs/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@exs/shared": "workspace:*",
+    "@aws-lambda-powertools/event-handler": "2.37.0",
+    "@aws-lambda-powertools/logger": "2.37.0",
+    "@aws-lambda-powertools/tracer": "2.37.0",
+    "@aws-lambda-powertools/metrics": "2.37.0",
+    "@aws-lambda-powertools/parser": "2.37.0",
+    "@aws-lambda-powertools/batch": "2.37.0",
+    "@aws-lambda-powertools/idempotency": "2.37.0",
+    "@middy/core": "^7.9.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.164"
+  }
+}
